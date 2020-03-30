@@ -1,5 +1,5 @@
 /*
- * File: MoleculeAnimation.h
+ * File: MoleculeAnimation.cpp
  * Author: Richard Mace
  *
  * March 2020

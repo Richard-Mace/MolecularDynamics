@@ -164,8 +164,6 @@ void MoleculeVisualisation::display(const DynamicalSystem* ptrSystem) const {
     glMaterialfv(GL_FRONT, GL_DIFFUSE,  materials_[materialIndex_].diffuse_);
     glMaterialf(GL_FRONT, GL_SHININESS, materials_[materialIndex_].shininess_);
     
-    const double* ptrMolecule = ptrSystem->getStatePtr();
-    
     const size_t degreesOfFreedom = 
         dynamic_cast<const MoleculeSystem*>(ptrSystem)->getDegreesOfFreedom();
     
@@ -174,10 +172,11 @@ void MoleculeVisualisation::display(const DynamicalSystem* ptrSystem) const {
     const size_t numMolecules = 
         dynamic_cast<const MoleculeSystem*>(ptrSystem)->getNumber();
     
-    for (size_t i = 0; i < numMolecules; ++i) {
-        GLfloat x = static_cast<GLfloat>(ptrMolecule[0]);
-        GLfloat y = static_cast<GLfloat>(ptrMolecule[1]);
-        GLfloat z = static_cast<GLfloat>(ptrMolecule[2]); 
+    for (std::size_t i = 0; i < numMolecules; ++i) {
+        std::size_t offset = i * degreesOfFreedom;
+        GLfloat x = static_cast<GLfloat>(ptrSystem->state()[offset + 0]);
+        GLfloat y = static_cast<GLfloat>(ptrSystem->state()[offset + 1]);
+        GLfloat z = static_cast<GLfloat>(ptrSystem->state()[offset + 2]);
         
         // Position and draw molecule.
         glPushMatrix();
@@ -185,8 +184,6 @@ void MoleculeVisualisation::display(const DynamicalSystem* ptrSystem) const {
         gluSphere(ptr_sphere, kMoleculeRadius_, kSphereSegments_, 
                 kSphereSegments_);
         glPopMatrix();
-        
-        ptrMolecule += degreesOfFreedom;
     }
     
     gluDeleteQuadric(ptr_sphere);

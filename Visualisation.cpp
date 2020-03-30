@@ -1,5 +1,5 @@
 /*
- * File:   MolecularDynamics.cpp
+ * File:   Visualisation.cpp
  * Author: Richard Mace
  *
  * March 2020

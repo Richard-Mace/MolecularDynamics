@@ -17,7 +17,7 @@ public:
     virtual ~DynamicalSystem() = default;
     
     std::size_t getDimension() const;
-    const double* getStatePtr() const;
+    const std::vector<double>& state() const;
     virtual std::vector<double> 
         stateDerivative(double, std::vector<double>&) = 0;
     virtual void step(double, double);

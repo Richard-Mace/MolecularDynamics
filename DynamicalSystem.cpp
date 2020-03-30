@@ -30,10 +30,10 @@ std::size_t DynamicalSystem::getDimension() const {
     return dimension_;
 }
 
-// Return a read-only pointer to the beginning of the system state vector.
+// Return a constant reference to the system state vector
 
-const double* DynamicalSystem::getStatePtr() const {
-    return state_.data();
+const std::vector<double>& DynamicalSystem::state() const {
+    return state_;
 }
 
 // Integrate the system differential equations from time t1 to time t2.
