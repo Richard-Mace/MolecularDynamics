@@ -18,7 +18,7 @@ public:
             MoleculeSystem::LoadType, GraphicsWindow::Type);
     
     ~MoleculeAnimation();
-
+    void step(double, double) override;
     virtual bool handleKeys(const GraphicsWindow::Event&) override;
     virtual bool handleMouse(const GraphicsWindow::Event&) override;
     

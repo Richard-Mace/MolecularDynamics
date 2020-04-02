@@ -33,6 +33,8 @@ protected:
     double              stepper_accuracy_; // integration accuracy
     
     // helper functions for system ODE integration
+    void EulerStep(double t1, double t2);
+    
     void RungeKuttaCashKarp(double t, double deltat, 
                             const std::vector<double>& currDerivative, 
                             std::vector<double>& newState, 

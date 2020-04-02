@@ -16,7 +16,8 @@ int main() {
     MoleculeSystem::LoadType loadType   {MoleculeSystem::LoadType::SOLID};
     GraphicsWindow::Type     windowType {GraphicsWindow::Type::FULLSCREEN};
 
-    MoleculeAnimation molecules(100, extents, loadType, windowType);
+    //MoleculeAnimation molecules(180, extents, loadType, windowType);
+    MoleculeAnimation molecules(144, extents, loadType, windowType);
     
     molecules.run();
     

@@ -28,6 +28,43 @@
  * 
  */
 
+///////////////////////////////////////////////////////////////////////////////
+// non-member utility functions                                              //
+///////////////////////////////////////////////////////////////////////////////
+
+// gaussian_deviate()
+//
+// Return a Gaussian deviate with zero mean and unit standard deviation.
+//
+
+static double gaussian_deviate() {
+    static std::random_device random; 
+    static std::mt19937 mersenne_twister(random()); // seed twister engine with
+                                                    // random() 
+    static std::normal_distribution<double> gaussian(0.0, 1.0);
+    
+    return gaussian(mersenne_twister);
+}
+
+// uniform deviate()
+//
+// Return a uniform deviate in the range [0.0,1.0).
+//
+static double uniform_deviate() {
+    static std::random_device random; 
+    static std::mt19937 mersenne_twister(random()); // seed twister engine with
+                                                    // random()
+    
+    static std::uniform_real_distribution<double> uniform(0.0, 1.0);
+    
+    return uniform(mersenne_twister);
+
+}
+
+///////////////////////////////////////////////////////////////////////////////
+// Member functions                                                          //
+///////////////////////////////////////////////////////////////////////////////
+
 MoleculeSystem::MoleculeSystem(std::size_t numMolecules, std::size_t numDOF, 
         const Extents& extents, LoadType loadType) 
 
@@ -98,7 +135,52 @@ double MoleculeSystem::getGravitationalAcceleration() const {
 
 void MoleculeSystem::step(double t1, double t2) {
     DynamicalSystem::step(t1, t2);
+    //DynamicalSystem::EulerStep(t1, t2);
     applyBoundaryConditions();
+}
+
+// pairInteraction(...)
+//
+// Non-member function that calculates the force, force_ij, on particle i due 
+// to particle j.
+//
+// Particle i has position vector (xi, yi, zi) = (pos_i[0], pos_i[1], pos_i[2]) 
+// and particle j has position vector (xj, yj, zj) = (pos_j[0], pos_j[1], 
+// pos_j[2]).
+// 
+// The force on particle i due to j is given by the derivative of the 
+// interaction potential function. In this case, the potential function 
+// governing the internal forces between pairs of atoms (point molecules) is the 
+// Lennard-Jones 6-12 potential written in symmetric form as follows:
+//
+//     V(r) = 4.0 * epsilon [(a/r)^12 - (a/r)^6]
+//
+// where r is the distance between the pair of atoms and a is their diameter. 
+// The parameter epsilon is the depth of the potential well.
+//
+
+static void pairInteraction(double* const force_ij, const double* const pos_i, 
+                     const double* const pos_j) {
+    double rjix = pos_i[0] - pos_j[0]; 
+    double rjiy = pos_i[1] - pos_j[1]; 
+    double rjiz = pos_i[2] - pos_j[2];
+    
+    double r2 = rjix * rjix + rjiy * rjiy + rjiz * rjiz; 
+    double r6 = r2 * r2 * r2;
+    double r8 = r6 * r2;
+                
+    // Compute the force on particle i due to particle j. This comes from the 
+    // derivative of the Lennard-Jones potential, Eq. (3.5) of Flowers and 
+    // Mendoza, in normalised form.
+    double flaw = -(1.0 - 2.0 / r6) / r8;
+    double fjix = rjix * flaw;
+    double fjiy = rjiy * flaw;
+    double fjiz = rjiz * flaw;
+                 
+    // Add it to the running total for force on particle i (due to particle j).
+    force_ij[0] += fjix;
+    force_ij[1] += fjiy;
+    force_ij[2] += fjiz;
 }
 
 // stateDerivative:
@@ -108,13 +190,8 @@ void MoleculeSystem::step(double t1, double t2) {
 // thisState.
 //
 // The interaction potential governing the internal forces between pairs of 
-// atoms (point molecules) is the Lennard-Jones 6-12 potential written in 
-// symmetric form as follows:
-//
-//     V(r) = 4.0 * epsilon [(a/r)^12 - (a/r)^6]
-//
-// where r is the distance between the pair of atoms and a is their diameter. 
-// The parameter epsilon is the depth of the potential well.
+// atoms (point molecules) is the Lennard-Jones 6-12 potential (see function
+// pairInteraction above).
 //
 // The equations of motion (Newton's equations) have been written in 
 // dimensionless units as follows. Lengths have been normalised by a, the 
@@ -124,81 +201,46 @@ void MoleculeSystem::step(double t1, double t2) {
 // trapped in the potential well and is defined by (c.f. Flowers and Mendoza, 
 // Properties of Matter, p. 46, Eq. (3.20)):
 //
-//            omega_E = sqrt[24 * n * epsilon / (m * a^2)]
+//            omega_E = sqrt[24 * epsilon / (m * a^2)]
 // 
-// where n is the coordination number (the number of nearest neighour atoms, 
-// usually 6 - 12, Flowers and Mendoza, Properties of Matter, p. 32), epsilon 
-// is the depth of the Lennard-Jones potential (see above), m is the mass of an 
-// atom (molecule), and a is its diameter. In terms of these units, the only 
-// physical constant appearing in the equations of motion is the coordination 
-// number n. For the purposes of animation, a value of n = 2.0 gives pleasing 
-// results.
+// where epsilon is the depth of the Lennard-Jones potential (see above), m is 
+// the mass of an atom (molecule), and a is its diameter. 
 // 
 
 std::vector<double> MoleculeSystem::stateDerivative(
                                             double t, 
                                             std::vector<double>& thisState) {
+    // Components of total (sum of) external force(s).
+    double f_external_x = 0.0;
+    double f_external_y = 0.0;
+    double f_external_z = -1.0 * gravitationalAcceleration_;
     
     std::vector<double> stateDot(2 * dimension_);
     
     for (std::size_t i = 0; i < numMolecules_; ++i) {
-        std::size_t n = i * numDegreesOfFreedom_;
-        double xi =  thisState[n + 0];
-        double yi =  thisState[n + 1];
-        double zi =  thisState[n + 2];
-        double vxi = thisState[n + 0 + dimension_];
-        double vyi = thisState[n + 1 + dimension_];
-        double vzi = thisState[n + 2 + dimension_];
-                
-        // Compute the total force on molecule i.
-        double fi_x = 0.0;
-        double fi_y = 0.0;
-        double fi_z = 0.0;
+        std::size_t pos_offset_i = i * numDegreesOfFreedom_;
+        
+        double force_i[3] = {0.0, 0.0, 0.0};
         
         for (std::size_t j = 0; j < numMolecules_; ++j) {
-            if (j != i) {               // Ignore self force. 
-                std::size_t m = j * numDegreesOfFreedom_;
-                double xj = thisState[m + 0];
-                double yj = thisState[m + 1];
-                double zj = thisState[m + 2];
-                double rjix = xi - xj;         // x-compt of vector r_ji
-                double rjiy = yi - yj;         // y-compt of vector r_ji
-                double rjiz = zi - zj;         // z-compt of vector r_ji
-                double r2 = rjix * rjix + rjiy * rjiy + rjiz * rjiz; 
-                double r6 = r2 * r2 * r2;
-                double r8 = r6 * r2;
-                
-                // Compute the force on particle i due to particle j.
-                // This comes from the derivative of the Lennard-Jones 
-                // potential, Eq. (3.5) of Flowers and Mendoza, in normalised 
-                // form.
-                double flaw = -(1.0 - 2.0 / r6) / r8;
-                double fjix = rjix * flaw;
-                double fjiy = rjiy * flaw;
-                double fjiz = rjiz * flaw;
-                 
-                // Add it to the running total for force on particle i.
-                fi_x += fjix;
-                fi_y += fjiy;
-                fi_z += fjiz;
+            if (j != i) {  
+                std::size_t pos_offset_j = j * numDegreesOfFreedom_;
+                pairInteraction(force_i, &thisState[pos_offset_i], 
+                        &thisState[pos_offset_j]);
             }
         } 
-        // The factor controlling the strength of the internal forces, as per 
-        // our normalisations.
-        double k_strength = 1.0 / kCoordinationNumber_;
-        
-        // Components of total (sum of) external force(s).
-        double f_external_x = 0.0;
-        double f_external_y = 0.0;
-        double f_external_z = -1.0 * gravitationalAcceleration_;
-        
+
         // Form this contribution to the system ODE.
-        stateDot[n + 0] = vxi;
-        stateDot[n + 1] = vyi;
-        stateDot[n + 2] = vzi;
-        stateDot[n + dimension_ + 0] = k_strength * fi_x + f_external_x;
-        stateDot[n + dimension_ + 1] = k_strength * fi_y + f_external_y;
-        stateDot[n + dimension_ + 2] = k_strength * fi_z + f_external_z;
+        
+        // vxi, vyi, vzi
+        stateDot[pos_offset_i + 0] = thisState[pos_offset_i + 0 + dimension_]; 
+        stateDot[pos_offset_i + 1] = thisState[pos_offset_i + 1 + dimension_]; 
+        stateDot[pos_offset_i + 2] = thisState[pos_offset_i + 2 + dimension_];
+        
+        // fxi, fyi, fzi
+        stateDot[pos_offset_i + dimension_ + 0] = force_i[0] + f_external_x;
+        stateDot[pos_offset_i + dimension_ + 1] = force_i[1] + f_external_y;
+        stateDot[pos_offset_i + dimension_ + 2] = force_i[2] + f_external_z;
     }
     
     return stateDot;
@@ -209,12 +251,12 @@ std::vector<double> MoleculeSystem::stateDerivative(
 ///////////////////////////////////////////////////////////////////////////////
 
 void MoleculeSystem::initRandom(double thermalEnergy) {
-    std::random_device random; 
-    std::mt19937 mersenne_twister(random()); // seed twister engine with
+  //  std::random_device random; 
+  //  std::mt19937 mersenne_twister(random()); // seed twister engine with
                                              // random()
     
-    std::uniform_real_distribution<double> uniform(0.0, 1.0); 
-    std::normal_distribution<double> gaussian(0.0, 1.0);
+  //  std::uniform_real_distribution<double> uniform(0.0, 1.0); 
+  //  std::normal_distribution<double> gaussian(0.0, 1.0);
     
     double lx = extents_.xmax - extents_.xmin;
     double ly = extents_.ymax - extents_.ymin;
@@ -223,7 +265,7 @@ void MoleculeSystem::initRandom(double thermalEnergy) {
     // Initialise thermal speed such that the ratio of the thermal energy, kT, 
     // to the depth of the Lennard-Jones potential well, epsilon, is given by
     // thermalEnergy.
-    double vtherm = sqrt(thermalEnergy / (24.0 * kCoordinationNumber_));
+    double vtherm = sqrt(thermalEnergy / 24.0);
     
     double minx = extents_.xmin;
     double miny = extents_.ymin;
@@ -233,17 +275,17 @@ void MoleculeSystem::initRandom(double thermalEnergy) {
     
     for (std::size_t i = 0; i < numMolecules_; ++i) {
         // Set initial x, y and z coords of each molecule randomly inside  box.
-        ptrMolecule[0] = minx + uniform(mersenne_twister) * lx;
-        ptrMolecule[1] = miny + uniform(mersenne_twister) * ly;
-        ptrMolecule[2] = minz + uniform(mersenne_twister) * lz;
+        ptrMolecule[0] = minx + uniform_deviate() * lx; // uniform(mersenne_twister) * lx;
+        ptrMolecule[1] = miny + uniform_deviate() * ly; // uniform(mersenne_twister) * ly;
+        ptrMolecule[2] = minz + uniform_deviate() * lz; // uniform(mersenne_twister) * lz;
         
         // Set initial vx, vy and vz of each molecule using Gaussian deviates 
         // with zero mean and standard deviation equal to the (normalised) 
         // thermal speed. Gives an approximately Maxwellian distribution initial 
         // loading, with thermal energy kT (in units of epsilon) given as above.
-        ptrMolecule[dimension_ + 0] = vtherm * gaussian(mersenne_twister);
-        ptrMolecule[dimension_ + 1] = vtherm * gaussian(mersenne_twister);
-        ptrMolecule[dimension_ + 2] = vtherm * gaussian(mersenne_twister);
+        ptrMolecule[dimension_ + 0] = vtherm * gaussian_deviate(); // gaussian(mersenne_twister);
+        ptrMolecule[dimension_ + 1] = vtherm * gaussian_deviate(); // gaussian(mersenne_twister);
+        ptrMolecule[dimension_ + 2] = vtherm * gaussian_deviate(); // gaussian(mersenne_twister);
         
         // next molecule address
         ptrMolecule += numDegreesOfFreedom_;
@@ -259,10 +301,10 @@ void MoleculeSystem::initRandom(double thermalEnergy) {
 //
 
 void MoleculeSystem::initLatticeHCP(double thermalEnergy) {
-    std::random_device random; 
-    std::mt19937 mersenne_twister(random()); // seed twister engine with
+  //  std::random_device random; 
+  //  std::mt19937 mersenne_twister(random()); // seed twister engine with
                                              // random()
-    std::normal_distribution<double> gaussian(0.0, 1.0); 
+   // std::normal_distribution<double> gaussian(0.0, 1.0); 
     
     double xmin = std::numeric_limits<double>::max();
     double xmax = std::numeric_limits<double>::lowest();
@@ -283,7 +325,7 @@ void MoleculeSystem::initLatticeHCP(double thermalEnergy) {
     // Calculate the thermal speed of a molecule given the ratio of 
     // thermal energy to depth of Lennard-Jones potential well (epsilon), i.e.,
     // the value of the thermalEnergy argument.
-    double vtherm = sqrt(thermalEnergy / (24.0 * kCoordinationNumber_));
+    double vtherm = sqrt(thermalEnergy / 24.0);
     
     for (std::size_t nptcl = 0; nptcl < numMolecules_; ++nptcl) {
         int k = static_cast<int>(nptcl) / (numx * numy);
@@ -324,9 +366,9 @@ void MoleculeSystem::initLatticeHCP(double thermalEnergy) {
         // vx, vy and vz are given by deviates from a gaussian (normal) 
         // distribution with zero mean and unit standard deviation, multiplied
         // by the thermal speed.
-        state_[offset + 0 + dimension_] = vtherm * gaussian(mersenne_twister);
-        state_[offset + 1 + dimension_] = vtherm * gaussian(mersenne_twister);
-        state_[offset + 2 + dimension_] = vtherm * gaussian(mersenne_twister);
+        state_[offset + 0 + dimension_] = vtherm * gaussian_deviate(); // gaussian(mersenne_twister);
+        state_[offset + 1 + dimension_] = vtherm * gaussian_deviate(); // gaussian(mersenne_twister);
+        state_[offset + 2 + dimension_] = vtherm * gaussian_deviate(); // gaussian(mersenne_twister);
     }
 
     // Centre lattice at the origin of our fixed coordinate system.
@@ -428,15 +470,69 @@ void MoleculeSystem::scaleVelocities(double factor) {
         double vz = state_[offset + 2];
         
         // In our chosen units, the kinetic energy (in units of epsilon -- the 
-        // depth of the Lennard-Jones potential) is equal to 12 * n * v^2, where
+        // depth of the Lennard-Jones potential) is equal to 12 * v^2, where
         // v is the speed in normalised units.
-        double kineticEnergy = 12 * kCoordinationNumber_ 
-            * (vx * vx + vy * vy + vz * vz);
+        double kineticEnergy = 12 * (vx * vx + vy * vy + vz * vz);
         
         if (factor < 1.0 || kineticEnergy < kKineticMax_) {
             state_[offset + 0] *= factor;
             state_[offset + 1] *= factor;
             state_[offset + 2] *= factor;
+        }
+    }
+}
+
+// immserseCoolBath()
+//
+// Simulate the effects of cooling the system by immersion in a bath (solvent)
+// of cooler molecules. Very crude at the moment, but effective.
+
+void MoleculeSystem::immerseCoolBath() {
+    constexpr double vtherm = sqrt(120.0 * kKToverEpsilonSolid_ / 24.0);
+    
+    for (std::size_t i = 0; i < numMolecules_; ++i) {
+        std::size_t offset = i * numDegreesOfFreedom_ + dimension_;
+        double vx = state_[offset + 0];
+        double vy = state_[offset + 1];
+        double vz = state_[offset + 2];
+        
+        // In our chosen units, the kinetic energy (in units of epsilon -- the 
+        // depth of the Lennard-Jones potential) is equal to 12 * v^2, where
+        // v is the speed in normalised units.
+        double v = sqrt(vx * vx + vy * vy + vz * vz);
+        
+        state_[offset + 0] = 0.98 * vx + vtherm * gaussian_deviate();
+        state_[offset + 1] = 0.98 * vy + vtherm * gaussian_deviate();
+        state_[offset + 2] = 0.98 * vz + vtherm * gaussian_deviate();
+
+    }
+}
+
+// immerseHotBath()
+//
+// Simulate the effects of heating the system by immersion in a bath (solvent)
+// of hotter molecules. Very crude at the moment, but effective.
+
+void MoleculeSystem::immerseHotBath() {
+    constexpr double vtherm = sqrt(2000.0 * kKToverEpsilonSolid_ / 24.0);
+    
+    for (std::size_t i = 0; i < numMolecules_; ++i) {
+        std::size_t offset = i * numDegreesOfFreedom_ + dimension_;
+        double vx = state_[offset + 0];
+        double vy = state_[offset + 1];
+        double vz = state_[offset + 2];
+        
+        // In our chosen units, the kinetic energy (in units of epsilon -- the 
+        // depth of the Lennard-Jones potential) is equal to 12 * v^2, where
+        // v is the speed in normalised units.
+        double kineticEnergy = 12 * (vx * vx + vy * vy + vz * vz);
+       // double v = sqrt(vx * vx + vy * vy + vz * vz);
+
+        
+        if (kineticEnergy < kKineticMax_) {
+            state_[offset + 0] += vtherm * gaussian_deviate();
+            state_[offset + 1] += vtherm * gaussian_deviate();
+            state_[offset + 2] += vtherm * gaussian_deviate();
         }
     }
 }

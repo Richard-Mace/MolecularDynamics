@@ -58,6 +58,26 @@ MoleculeAnimation::~MoleculeAnimation() {
     std::cout << "MoleculeAnimation: Destructor." << '\n';
 }
 
+// step()
+//
+// The main sequence of calls in run(). This overrides Animation::step() to 
+// allow a scaling of time (in seconds). Since time has been normalised such 
+// that t' = omega_E t, it follows that, with t' measured in seconds, 2 * M_PI 
+// seconds would correspond to one oscillation period. This is too long for a 
+// visually appealing animation. To accommodate this we scale the molecular 
+// times by a factor of several times 2 * M_PI. With a factor of 4.0 * 
+// (2.0 * M_PI), there are approximately four lattice oscillation periods per 
+// second, which is pleasing visually.
+
+void MoleculeAnimation::step(double t1, double t2) {
+    double molecTimeScale = 8.0 * M_PI;
+    
+    ptrVisualisation_->display(ptrSystem_);
+    ptrSystem_->step(molecTimeScale * t1, molecTimeScale * t2);
+    ptrVisualisation_->step(t1, t2);
+}
+
+
 /*
  * handleKeys:
  *
@@ -179,9 +199,9 @@ void MoleculeAnimation::contract() {
     
     double num = static_cast<double>(ptrMolySys->getNumber());
     
-    // Minimum volume corresponds to each molecule confined to a cube
-    // of side length equal to 2 * r.
-    double volume_min = 8.0 * r * r * r * num;
+    // Minimum volume corresponds to each molecule confined to a volume
+    // equal to 2.0 * the volume of a cube of side length equal to 2 * r.
+    double volume_min = 2.0 * 8.0 * r * r * r * num;
     
     // Don't allow unlimited squashing.
     if (volume <= volume_min) {
@@ -211,7 +231,7 @@ void MoleculeAnimation::toggleGravity() {
     MoleculeSystem* ptrMolySys = dynamic_cast<MoleculeSystem*>(ptrSystem_);
     
     if (ptrMolySys->getGravitationalAcceleration() == 0.0) {
-        ptrMolySys->setGravitationalAcceleration(0.01);
+        ptrMolySys->setGravitationalAcceleration(0.004);
     }
     else {
         ptrMolySys->setGravitationalAcceleration(0.0);
@@ -230,7 +250,8 @@ void MoleculeAnimation::toggleGravity() {
  */
 
 void MoleculeAnimation::heat() {
-    dynamic_cast<MoleculeSystem*>(ptrSystem_)->scaleVelocities(1.05);
+    //dynamic_cast<MoleculeSystem*>(ptrSystem_)->scaleVelocities(1.05);
+    dynamic_cast<MoleculeSystem*>(ptrSystem_)->immerseHotBath();
 }
 
 /*
@@ -242,7 +263,8 @@ void MoleculeAnimation::heat() {
  */
 
 void MoleculeAnimation::cool() {
-    dynamic_cast<MoleculeSystem*>(ptrSystem_)->scaleVelocities(0.95);
+    //dynamic_cast<MoleculeSystem*>(ptrSystem_)->scaleVelocities(0.95);
+    dynamic_cast<MoleculeSystem*>(ptrSystem_)->immerseCoolBath();
 }
 
 

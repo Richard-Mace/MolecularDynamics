@@ -9,6 +9,7 @@
 #include "DynamicalSystem.h"
 #include <iostream>
 #include <cmath>
+#include <stdexcept>
 
 // Constructor
 //
@@ -236,7 +237,7 @@ void DynamicalSystem::ODEIntegrate(double t1, double t2, double accuracy) {
     
     std::size_t order = 2 * dimension_;
 
-    double delta = 0.1;
+    double delta = t2 - t1;
     double t = t1;
     double deltaDid;
     double deltaNext;
@@ -244,22 +245,54 @@ void DynamicalSystem::ODEIntegrate(double t1, double t2, double accuracy) {
     std::vector<double> stateDot(order);
     std::vector<double> stateScale(order);
     
-    do {
+    while (t < t2) {
         stateDot = stateDerivative(t, state_);
         
         for (std::size_t i = 0; i < order; ++i) {
             stateScale[i] = fabs(state_[i]) + fabs(delta * stateDot[i]) + k_tiny;
         }
         
+        // Decrease stepsize if we are going to overshoot.
+        if ((t + delta - t2) * (t + delta - t1) > 0.0) {
+            delta = t2 - t;
+        }
+        
         RungeKuttaQualityControlled(t, delta, accuracy, stateDot, stateScale, 
                 deltaDid, deltaNext);
         
+        //if (deltaDid == delta) {
+        //    std::cout << "Good step!\n";
+        //}
+        
         t += deltaDid;
         delta = deltaNext;
+        
+        
+       // std::cout << "deltaDid = " << deltaDid << '\n';
+        
+        if (t2 != t1 && deltaDid == 0.0) {
+            throw std::runtime_error{"zero-sized step in ODEIntegrate"};
+        }   
+    }
+    
+    //std::cout << "t = " << t << " t2 = " << t2 << '\n';
+}
 
-        // make sure we don't overshoot
-        if (t + delta > t2) {
-            delta = t2 - t;
-        }
-    } while (t < t2);
+// Quick and dirty Euler integration from time t1 to t2. Used for speed, not
+// accuracy. Needs work!
+
+void DynamicalSystem::EulerStep(double t1, double t2) {
+    double delta = t2 - t1;
+    
+   // std::cout << "t1 = " << t1 << " t2 = " << t2 << '\n';
+    
+    std::vector<double> stateDot = stateDerivative(t1, state_);
+    
+  //  for (std::size_t i = 0; i < 2 * dimension_; ++i) {
+  //      std::cout << stateDot[i] << '\n';
+  //  }
+    
+    for (std::size_t i = 0; i < 2 * dimension_; ++i) {
+        state_[i] += stateDot[i] * delta;
+    }
 }

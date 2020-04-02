@@ -36,10 +36,11 @@ public:
     Extents getExtents() const;
     void setExtents(const MoleculeSystem::Extents&);
     void scaleVelocities(double factor);
+    void immerseCoolBath();
+    void immerseHotBath();
     
 private:
     static constexpr double kKineticMax_                = 10.0;
-    static constexpr double kCoordinationNumber_        = 2.0;
     static constexpr double kKToverEpsilonGas_          = 2.0;
     static constexpr double kKToverEpsilonLiquid_       = 0.8;
     static constexpr double kKToverEpsilonSolid_        = 1.0e-5;
