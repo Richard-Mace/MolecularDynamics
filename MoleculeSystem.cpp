@@ -11,20 +11,46 @@
 #include <iostream>
 
 /*
- * NOTE: state_ vector layout is as follows:
+ * NOTE: With dimension_ = N * numDegreesOfFreedom_, where N is the number of 
+ * molecules, and numDegreesOfFreedom_ = 3 per molecule, the state_ vector 
+ * layout is as follows:
  *
- * state_[0] = q_1,  
- * state_[1] = q_2,  
- * state_[2] = q_3,
+ * state_[0]                  = x_1,  
+ * state_[1]                  = y_1,  
+ * state_[2]                  = z_1,
  * .
  * .
- * state_[dimension_ - 1] = q_{dimension}
- * state_[dimension_ + 0] = p_1, 
- * state_[dimension_ + 1] = p_2, 
- * state_[dimension_ + 2] = p_3,
+ * state_[dimension_ - 3]     = x_N    [N.B. dimension_ - 3 = 3(N - 1)]
+ * state_[dimension_ - 2]     = y_N
+ * state_[dimension_ - 1]     = z_N
+ * state_[dimension_ + 0]     = vx_1, 
+ * state_[dimension_ + 1]     = vy_1, 
+ * state_[dimension_ + 2]     = vz_1,
  * .
  * .
- * state_[2 * dimension_ - 1] = p_{dimension}
+ * state_[2 * dimension_ - 3] = vx_N   [N.B. 2 * dimension_ - 3 = 3N + 3(N - 1)]
+ * state_[2 * dimension_ - 2] = vy_N
+ * state_[2 * dimension_ - 1] = vz_N
+ * 
+ * In other words, indices [0 ... 3N - 1] contain particle position vector
+ * coordinates, while indices [3N ... 6N - 1] contain particle velocity vector
+ * coordinates. By labelling particles with index i running from 0 to N - 1, 
+ * we can find the position vector (xi, yi, zi) of particle i via the following:
+ * 
+ *   offset_i = numDegreesOfFreedom_ * i;
+ *   xi = state_[offset_i]; 
+ *   yi = state_[offset_i+1]; 
+ *   zi = state_[offset_i+2]; 
+ *
+ * The velocity of particle i, (vxi, vyi, vzi) is located via (recall that 
+ * dimension_ = N * numDegreesOfFreedom_):
+ * 
+ *   offset_vi = dimension_ + numDegreesOfFreedom_ * i;
+ *   vxi = state_[offset_vi]; 
+ *   vyi = state_[offset_vi+1]; 
+ *   vzi = state_[offset_vi+2];
+ * 
+ * In this code numDegreesOfFreedom_ = 3.
  * 
  */
 
@@ -185,9 +211,8 @@ static void pairInteraction(double* const force_ij, const double* const pos_i,
 
 // stateDerivative:
 //
-// Evaluate the time derivative of the state vector for an arbitrary time t
-// (in units of 1 / omega_E -- see below) and an arbitrary system state,
-// thisState.
+// Evaluate the time derivative of the given state vector thisState at given 
+// time t (in units of 1 / omega_E -- see below). 
 //
 // The interaction potential governing the internal forces between pairs of 
 // atoms (point molecules) is the Lennard-Jones 6-12 potential (see function
@@ -205,6 +230,14 @@ static void pairInteraction(double* const force_ij, const double* const pos_i,
 // 
 // where epsilon is the depth of the Lennard-Jones potential (see above), m is 
 // the mass of an atom (molecule), and a is its diameter. 
+//
+// With the layout of the state vector (state_) described above, the elements 
+// of its time derivative, stateDot, have the following meanings:
+// stateDot[0] ... stateDot[dimension_ - 1] correspond to velocity components, 
+// whereas stateDot[dimension_] ... stateDot[2 * dimension_ - 1] correspond to 
+// acceleration components. In other words, the elements stateDot[dimension_] 
+// ... stateDot[2 * dimension_ - 1] are determined via Newton's equations for
+// the system of particles.
 // 
 
 std::vector<double> MoleculeSystem::stateDerivative(
@@ -220,6 +253,12 @@ std::vector<double> MoleculeSystem::stateDerivative(
     for (std::size_t i = 0; i < numMolecules_; ++i) {
         std::size_t pos_offset_i = i * numDegreesOfFreedom_;
         
+        // vxi, vyi, vzi
+        stateDot[pos_offset_i + 0] = thisState[pos_offset_i + 0 + dimension_]; 
+        stateDot[pos_offset_i + 1] = thisState[pos_offset_i + 1 + dimension_]; 
+        stateDot[pos_offset_i + 2] = thisState[pos_offset_i + 2 + dimension_];
+        
+        // Calculate the acceleration.
         double force_i[3] = {0.0, 0.0, 0.0};
         
         for (std::size_t j = 0; j < numMolecules_; ++j) {
@@ -230,14 +269,7 @@ std::vector<double> MoleculeSystem::stateDerivative(
             }
         } 
 
-        // Form this contribution to the system ODE.
-        
-        // vxi, vyi, vzi
-        stateDot[pos_offset_i + 0] = thisState[pos_offset_i + 0 + dimension_]; 
-        stateDot[pos_offset_i + 1] = thisState[pos_offset_i + 1 + dimension_]; 
-        stateDot[pos_offset_i + 2] = thisState[pos_offset_i + 2 + dimension_];
-        
-        // fxi, fyi, fzi
+        // axi, ayi, azi
         stateDot[pos_offset_i + dimension_ + 0] = force_i[0] + f_external_x;
         stateDot[pos_offset_i + dimension_ + 1] = force_i[1] + f_external_y;
         stateDot[pos_offset_i + dimension_ + 2] = force_i[2] + f_external_z;
@@ -251,13 +283,6 @@ std::vector<double> MoleculeSystem::stateDerivative(
 ///////////////////////////////////////////////////////////////////////////////
 
 void MoleculeSystem::initRandom(double thermalEnergy) {
-  //  std::random_device random; 
-  //  std::mt19937 mersenne_twister(random()); // seed twister engine with
-                                             // random()
-    
-  //  std::uniform_real_distribution<double> uniform(0.0, 1.0); 
-  //  std::normal_distribution<double> gaussian(0.0, 1.0);
-    
     double lx = extents_.xmax - extents_.xmin;
     double ly = extents_.ymax - extents_.ymin;
     double lz = extents_.zmax - extents_.zmin;
@@ -275,17 +300,17 @@ void MoleculeSystem::initRandom(double thermalEnergy) {
     
     for (std::size_t i = 0; i < numMolecules_; ++i) {
         // Set initial x, y and z coords of each molecule randomly inside  box.
-        ptrMolecule[0] = minx + uniform_deviate() * lx; // uniform(mersenne_twister) * lx;
-        ptrMolecule[1] = miny + uniform_deviate() * ly; // uniform(mersenne_twister) * ly;
-        ptrMolecule[2] = minz + uniform_deviate() * lz; // uniform(mersenne_twister) * lz;
+        ptrMolecule[0] = minx + uniform_deviate() * lx;
+        ptrMolecule[1] = miny + uniform_deviate() * ly;
+        ptrMolecule[2] = minz + uniform_deviate() * lz;
         
         // Set initial vx, vy and vz of each molecule using Gaussian deviates 
         // with zero mean and standard deviation equal to the (normalised) 
         // thermal speed. Gives an approximately Maxwellian distribution initial 
         // loading, with thermal energy kT (in units of epsilon) given as above.
-        ptrMolecule[dimension_ + 0] = vtherm * gaussian_deviate(); // gaussian(mersenne_twister);
-        ptrMolecule[dimension_ + 1] = vtherm * gaussian_deviate(); // gaussian(mersenne_twister);
-        ptrMolecule[dimension_ + 2] = vtherm * gaussian_deviate(); // gaussian(mersenne_twister);
+        ptrMolecule[dimension_ + 0] = vtherm * gaussian_deviate();
+        ptrMolecule[dimension_ + 1] = vtherm * gaussian_deviate();
+        ptrMolecule[dimension_ + 2] = vtherm * gaussian_deviate();
         
         // next molecule address
         ptrMolecule += numDegreesOfFreedom_;
@@ -301,11 +326,6 @@ void MoleculeSystem::initRandom(double thermalEnergy) {
 //
 
 void MoleculeSystem::initLatticeHCP(double thermalEnergy) {
-  //  std::random_device random; 
-  //  std::mt19937 mersenne_twister(random()); // seed twister engine with
-                                             // random()
-   // std::normal_distribution<double> gaussian(0.0, 1.0); 
-    
     double xmin = std::numeric_limits<double>::max();
     double xmax = std::numeric_limits<double>::lowest();
     double ymin = xmin;
@@ -366,9 +386,9 @@ void MoleculeSystem::initLatticeHCP(double thermalEnergy) {
         // vx, vy and vz are given by deviates from a gaussian (normal) 
         // distribution with zero mean and unit standard deviation, multiplied
         // by the thermal speed.
-        state_[offset + 0 + dimension_] = vtherm * gaussian_deviate(); // gaussian(mersenne_twister);
-        state_[offset + 1 + dimension_] = vtherm * gaussian_deviate(); // gaussian(mersenne_twister);
-        state_[offset + 2 + dimension_] = vtherm * gaussian_deviate(); // gaussian(mersenne_twister);
+        state_[offset + 0 + dimension_] = vtherm * gaussian_deviate();
+        state_[offset + 1 + dimension_] = vtherm * gaussian_deviate();
+        state_[offset + 2 + dimension_] = vtherm * gaussian_deviate();
     }
 
     // Centre lattice at the origin of our fixed coordinate system.
@@ -390,7 +410,6 @@ void MoleculeSystem::initLatticeHCP(double thermalEnergy) {
  */
 
 void MoleculeSystem::applyBoundaryConditions() {
-    
     double minx = extents_.xmin;
     double maxx = extents_.xmax;
     double miny = extents_.ymin;
@@ -462,7 +481,6 @@ void MoleculeSystem::applyBoundaryConditions() {
  */
 
 void MoleculeSystem::scaleVelocities(double factor) {
-    
     for (std::size_t i = 0; i < numMolecules_; ++i) {
         std::size_t offset = i * numDegreesOfFreedom_ + dimension_;
         double vx = state_[offset + 0];
@@ -486,6 +504,9 @@ void MoleculeSystem::scaleVelocities(double factor) {
 //
 // Simulate the effects of cooling the system by immersion in a bath (solvent)
 // of cooler molecules. Very crude at the moment, but effective.
+//
+// The thermal energy determining the thermal speed used to perturb the initial
+// particle velocity is (arbitrarily) 120.0 * (KT/epsilon)_solid.
 
 void MoleculeSystem::immerseCoolBath() {
     constexpr double vtherm = sqrt(120.0 * kKToverEpsilonSolid_ / 24.0);
@@ -496,15 +517,9 @@ void MoleculeSystem::immerseCoolBath() {
         double vy = state_[offset + 1];
         double vz = state_[offset + 2];
         
-        // In our chosen units, the kinetic energy (in units of epsilon -- the 
-        // depth of the Lennard-Jones potential) is equal to 12 * v^2, where
-        // v is the speed in normalised units.
-        double v = sqrt(vx * vx + vy * vy + vz * vz);
-        
         state_[offset + 0] = 0.98 * vx + vtherm * gaussian_deviate();
         state_[offset + 1] = 0.98 * vy + vtherm * gaussian_deviate();
         state_[offset + 2] = 0.98 * vz + vtherm * gaussian_deviate();
-
     }
 }
 
@@ -512,6 +527,9 @@ void MoleculeSystem::immerseCoolBath() {
 //
 // Simulate the effects of heating the system by immersion in a bath (solvent)
 // of hotter molecules. Very crude at the moment, but effective.
+//
+// The thermal energy determining the thermal speed used to perturb the initial
+// particle velocity is (arbitrarily) 2000.0 * (KT/epsilon)_solid.
 
 void MoleculeSystem::immerseHotBath() {
     constexpr double vtherm = sqrt(2000.0 * kKToverEpsilonSolid_ / 24.0);
@@ -526,8 +544,6 @@ void MoleculeSystem::immerseHotBath() {
         // depth of the Lennard-Jones potential) is equal to 12 * v^2, where
         // v is the speed in normalised units.
         double kineticEnergy = 12 * (vx * vx + vy * vy + vz * vz);
-       // double v = sqrt(vx * vx + vy * vy + vz * vz);
-
         
         if (kineticEnergy < kKineticMax_) {
             state_[offset + 0] += vtherm * gaussian_deviate();

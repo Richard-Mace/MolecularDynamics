@@ -37,6 +37,22 @@ const std::vector<double>& DynamicalSystem::state() const {
     return state_;
 }
 
+// Virtual function stateDerivative(double t, std::vector<double>& thisState)
+//
+// This pure virtual function, with signature above, must be overridden in the
+// deriving class. The function must take a time t and a corresponding system
+// state, thisState (which may or may not be equal to state_), and return the 
+// time derivative of the state. The variables in the state vector can be 
+// ordered in any way that the user wishes, but this ordering must be obeyed by 
+// all state vectors (state_ and thisState) and their time derivatives must 
+// correspond, component by component (or element by element), to the original 
+// state. For example, if the state vector state_ (and thisState) corresponds 
+// to the vector of variables (w(t), x(t), y(t), z(t)), then the stateDerivative 
+// function must return the vector (dw/dt, dx/dt, dy/dt, dz/dt), valid at time
+// t, in that precise order.
+//
+
+
 // Integrate the system differential equations from time t1 to time t2.
 
 void DynamicalSystem::step(double t1, double t2) {
@@ -260,22 +276,13 @@ void DynamicalSystem::ODEIntegrate(double t1, double t2, double accuracy) {
         RungeKuttaQualityControlled(t, delta, accuracy, stateDot, stateScale, 
                 deltaDid, deltaNext);
         
-        //if (deltaDid == delta) {
-        //    std::cout << "Good step!\n";
-        //}
-        
         t += deltaDid;
         delta = deltaNext;
-        
-        
-       // std::cout << "deltaDid = " << deltaDid << '\n';
         
         if (t2 != t1 && deltaDid == 0.0) {
             throw std::runtime_error{"zero-sized step in ODEIntegrate"};
         }   
     }
-    
-    //std::cout << "t = " << t << " t2 = " << t2 << '\n';
 }
 
 // Quick and dirty Euler integration from time t1 to t2. Used for speed, not
@@ -284,13 +291,7 @@ void DynamicalSystem::ODEIntegrate(double t1, double t2, double accuracy) {
 void DynamicalSystem::EulerStep(double t1, double t2) {
     double delta = t2 - t1;
     
-   // std::cout << "t1 = " << t1 << " t2 = " << t2 << '\n';
-    
     std::vector<double> stateDot = stateDerivative(t1, state_);
-    
-  //  for (std::size_t i = 0; i < 2 * dimension_; ++i) {
-  //      std::cout << stateDot[i] << '\n';
-  //  }
     
     for (std::size_t i = 0; i < 2 * dimension_; ++i) {
         state_[i] += stateDot[i] * delta;
