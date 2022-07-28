@@ -230,7 +230,7 @@ void DynamicalSystem::RungeKuttaQualityControlled(
         deltaNext = k_safety * delta * pow(errorMax, k_pow_grow);
     } 
     else {
-        deltaNext = 0.5 * delta;
+        deltaNext = 5.0 * delta;
     }
 
     // Transfer the new state vector to the member state_.
@@ -253,7 +253,7 @@ void DynamicalSystem::ODEIntegrate(double t1, double t2, double accuracy) {
     
     std::size_t order = 2 * dimension_;
 
-    double delta = t2 - t1;
+    double delta = 1.0e-6 * (t2 - t1);
     double t = t1;
     double deltaDid;
     double deltaNext;
